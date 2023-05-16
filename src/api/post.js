@@ -26,3 +26,11 @@ export function getPostById(postId) {
   })
 }
 
+// 查询帖子有效积分
+export function qryValidScores(postId) {
+  return axios({
+    url: '/post/qryValidScores/' + postId,
+    method: 'GET'
+  })
+}
+

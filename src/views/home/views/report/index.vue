@@ -31,7 +31,7 @@
         </template>
       </el-table-column>
       <el-table-column align="center" label="被举报者名称" width="110" prop="passiveNickname"></el-table-column>
-      <el-table-column align="center" label="举报类型" width="100" prop="type" :filters="typeFilterList">
+      <el-table-column align="center" label="举报类型" width="100" prop="type"  column-key="type" :filters="typeFilterList">
         <template #default="scope">
           <div style="display: block; align-items: center; text-align: center">
             <el-tag style="align-items: center;" v-if="scope.row.type === '0'" type="primary" effect="plain">评论</el-tag>
@@ -48,6 +48,8 @@
             <el-tag style="align-items: center;" v-else-if="scope.row.status === '00X'" type="info">已失效</el-tag>
             <el-tag style="align-items: center;" v-else-if="scope.row.status === '00B'" type="success">举报成功</el-tag>
             <el-tag style="align-items: center;" v-else-if="scope.row.status === '00C'" type="warning">举报失败</el-tag>
+            <el-tag style="align-items: center;" v-else-if="scope.row.status === '00D'" type="success">申诉成功</el-tag>
+            <el-tag style="align-items: center;" v-else-if="scope.row.status === '00E'" type="warning">申诉失败</el-tag>
           </div>
         </template>
       </el-table-column>
@@ -252,42 +254,63 @@
       </template>
     </el-dialog>
 
-    <!-- 申诉弹窗 -->
-    <el-dialog v-model="popVisible.popCommentVisible" class="popDialog" draggable >
+    <!--  帖子弹窗 -->
+    <el-dialog v-model="popVisible.popAppealVisible" class="popDialog" draggable >
       <template #header>
         <div class="header" style="display:flex; align-items: center; justify-content: space-between">
           <div class="left" style="display: flex; align-items: center">
             <el-avatar :src="form.avatar"></el-avatar>
             <div class="info" style="margin-left: 8px">
               <div class="nickname">{{form.nickname}}</div>
-              <div class="time" style="font-size: 13px; color: rgba(115,114,114,0.54)">评论时间:{{form.createDate}}</div>
+              <div class="time" style="font-size: 13px; color: rgba(115,114,114,0.54)">发帖时间:{{form.createDate}}</div>
             </div>
           </div>
           <div class="right" style="margin-right: 20px">
-            <el-tag class="ml-2" type="info">评论</el-tag>
+            <el-tag class="ml-2" v-if="form.type === '0'" type="warning">求助帖</el-tag>
+            <el-tag class="ml-2" v-else type="info">动态</el-tag>
           </div>
         </div>
-        <el-divider><span style="color: #ccc">评论内容</span></el-divider>
+        <el-divider><span style="color: #ccc">发帖内容</span></el-divider>
       </template>
 
       <template #default>
-        <div class="contentContainer">
+        <div class="contentContainer" style="display: flex;">
           <el-input
+              style="flex: 1;"
               v-model="form.content"
               :autosize="{ minRows: 3, maxRows: 6}"
               type="textarea"
               :disabled="true"
               placeholder="Please input"
           />
+          <div class="infinite-list-wrapper" style="overflow: auto; flex: 1">
+            <ul
+                v-infinite-scroll="load"
+                class="list"
+                :infinite-scroll-disabled="disabled"
+            >
+              <li v-for="(item, index) in commentList" :key="index" class="list-item" style="position: relative;margin-bottom: 5px">
+                <div class="box" style="display: flex; flex-direction: column;">
+                  <div class="top">{{ item.content }}</div>
+                  <div class="bottom" style="position: absolute;right: 5px; bottom: 3px; text-align: end;font-size: 12px">评论时间:{{item.createDate}}</div>
+                </div>
+              </li>
+            </ul>
+            <p v-if="loading" style="text-align: center">Loading...</p>
+            <p v-if="noMore" style="text-align: center">无~~~</p>
+          </div>
+        </div>
+        <div class="demo-image__lazy" style="display: flex; margin-top: 10px;">
+          <el-image style="border-radius: 0; width: 120px; margin: 0 5px" :previewSrcList="urls(form.images)" :initial-index="index" fit="contain" v-for="(item, index) in form.images" :key="item.url" :src="item.url" lazy />
         </div>
 
         <div class="handleBox" style="margin-top: 10px">
           <el-form ref="ruleFormRef" :model="ruleForm" :disabled="isFormDisable" label-width="120px" class="demo-ruleForm">
             <el-row>
               <el-col span="8">
-                <el-form-item label="是否删除评论:" required>
+                <el-form-item label="是否分配积分:" required>
                   <el-switch
-                      v-model="ruleForm.isDeleteComment"
+                      v-model="ruleForm.isNeedAssign"
                       inline-prompt
                       active-text="是"
                       inactive-text="否"
@@ -295,13 +318,9 @@
                 </el-form-item>
               </el-col>
               <el-col span="8">
-                <el-form-item label="是否删除用户:" required>
-                  <el-switch
-                      v-model="ruleForm.isDeleteUser"
-                      inline-prompt
-                      active-text="是"
-                      inactive-text="否"
-                  />
+                <el-form-item label="请输入积分:" v-if="ruleForm.isNeedAssign" >
+                  <el-input-number v-model="assignedNum" class="mx-4" min="0" :max="form.validScores" />
+                  <span style="color: #ccc; font-size: 10px;">最高不超过{{form.validScores}}分</span>
                 </el-form-item>
               </el-col>
             </el-row>
@@ -311,7 +330,7 @@
 
       <template #footer>
         <span class="dialog-footer">
-          <el-button :type="isFormDisable ? 'primary' : 'info'" plain @click="popVisible.popCommentVisible = false">{{isFormDisable ? "确认" : "稍后处理"}}</el-button>
+          <el-button :type="isFormDisable ? 'primary' : 'info'" plain @click="popVisible.popAppealVisible = false">{{isFormDisable ? "确认" : "稍后处理"}}</el-button>
           <el-popconfirm
               confirm-button-text="是"
               cancel-button-text="否"
@@ -319,7 +338,7 @@
               confirm-button-type="text"
               cancel-button-type="primary"
               title="您确定吗?"
-              @confirm="handlePostWarning">
+              @confirm="handleAppealWarning">
             <template #reference>
               <el-button v-if="!isFormDisable" plain class="logout" type="primary">确认处理</el-button>
             </template>
@@ -333,15 +352,15 @@
 </template>
 
 <script setup>
-  import {qryAllWarning, handleWarningMethod, updateWarning} from "../../../../api/warning.js"
-  import {onMounted, reactive, ref} from "vue"
+import {qryAllWarning, handleWarningMethod, updateWarning, handleAppeal} from "../../../../api/warning.js"
+  import {computed, onMounted, reactive, ref} from "vue"
   import {
     Brush,
     Search,
     View,
   } from '@element-plus/icons-vue'
-  import {getPostById, updatePost} from "../../../../api/post.js"
-  import {getCommentById} from "../../../../api/comment.js"
+  import {getPostById, qryValidScores} from "../../../../api/post.js"
+  import {getCommentById, qryPostCommentPage} from "../../../../api/comment.js"
 
   let pageReq = reactive({
     sortedField: '',
@@ -359,7 +378,9 @@
     popCommentVisible: false,
     popAppealVisible: false
   })
+  const urls = form => form.map(item => item.url)
   let form = reactive({})
+  let assignedNum = ref(0)
   let isFormDisable = ref(true)
   // 0评论，1帖子，2用户，3帖子申诉
   const handleWarning = (row, flag) => {
@@ -369,6 +390,7 @@
     ruleForm.isDeletePost = false
     ruleForm.isDeleteComment = false
     if (row.type === '0') {
+      // 评论
       getCommentById(row.commentPostId).then(res => {
         form = res.data
         form.warningId = row.warningId
@@ -385,6 +407,7 @@
         popVisible.popCommentVisible = true
       })
     } else if (row.type === '1') {
+      // 帖子
       getPostById(row.commentPostId).then(res => {
         form = res.data
         form.warningId = row.warningId
@@ -404,7 +427,29 @@
         popVisible.popPostVisible = true
       })
     } else if (row.type === '3') {
-
+      // 申诉
+      getPostById(row.commentPostId).then(res => {
+        form = res.data
+        form.warningId = row.warningId
+        form.positiveId = row.positiveUserId
+        form.avatar = row.passiveAvatar
+        form.nickname = row.passiveNickname
+        console.log(row)
+        if (row.scores !== 0) {
+          ruleForm.isNeedAssign = true
+          assignedNum.value = row.scores
+        } else {
+          assignedNum.value = 0
+          ruleForm.isNeedAssign = false
+        }
+        if (!!form.images) {
+          form.images = JSON.parse(form.images)
+        }
+        qryValidScores(row.commentPostId).then(res => {
+          form.validScores = res.data
+          popVisible.popAppealVisible = true
+        })
+      })
     }
   }
 
@@ -412,7 +457,8 @@
   let ruleForm = reactive({
     isDeletePost: false,
     isDeleteUser: false,
-    isDeleteComment: false
+    isDeleteComment: false,
+    isNeedAssign: false
   })
 
   const handlePostWarning = () => {
@@ -470,6 +516,8 @@
     {text: "已失效", value: "00X"},
     {text: "举报成功", value: "00B"},
     {text: "举报失败", value: "00C"},
+    {text: "申诉成功", value: "00D"},
+    {text: "申诉失败", value: "00E"},
   ])
   const typeFilterList = ref([
     {text: "评论", value: "0"},
@@ -524,11 +572,21 @@
   }
 
   const statusHandler = (val) => {
-    if (val.status.length !== 1) {
-      pageReq.status = ''
-    } else {
-      pageReq.status = val.status[0]
+    console.log(val)
+    if (val.status) {
+      if (val.status.length !== 1) {
+        pageReq.status = ''
+      } else {
+        pageReq.status = val.status[0]
+      }
+    } else if (val.type) {
+      if (val.type.length !== 1) {
+        pageReq.type = ''
+      } else {
+        pageReq.type = val.type[0]
+      }
     }
+
     qryAllWarning(pageReq).then(res => {
       tableData.value = res.data.records
       totalNum.value = res.data.total
@@ -541,6 +599,44 @@
       totalNum.value = res.data.total
     })
   })
+
+  let commentPageReq = reactive({
+    userId: 0,
+    postId: 0,
+    pageSize: 5,
+    pageNum: 1
+  })
+  const commentList = ref([])
+  const loading = ref(false)
+  const noMore = ref(false)
+  const disabled = computed(() => loading.value || noMore.value)
+  const load = () => {
+    loading.value = true
+    commentPageReq.userId = form.positiveId
+    commentPageReq.postId = form.postId
+    qryPostCommentPage(commentPageReq).then(res => {
+      if (res.data.records.length < 5) {
+        loading.value = false
+        noMore.value = true
+      }
+      commentList.value.push(...res.data.records);
+    })
+  }
+  const handleAppealWarning = () => {
+    let data = {}
+    data.warningId = form.warningId
+    data.postId = form.postId
+    data.positiveUserId = form.positiveId
+    data.isNeedAssign = ruleForm.isNeedAssign
+    data.scores = assignedNum.value
+    handleAppeal(data).then(res => {
+      ElMessage({
+        message: res.msg,
+        type: 'success',
+      })
+      popVisible.popAppealVisible = false
+    })
+  }
 
 </script>
 
@@ -584,5 +680,25 @@
   .el-dialog__body {
     padding: 0 10px;
   }
+}
+.infinite-list-wrapper {
+  height: 80px;
+}
+.infinite-list-wrapper .list {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.infinite-list-wrapper .list-item {
+  display: flex;
+  //align-items: center;
+  //justify-content: center;
+  padding: 5px;
+  background: var(--el-color-danger-light-9);
+  color: var(--el-color-danger);
+}
+.infinite-list-wrapper .list-item + .list-item {
+  margin-top: 10px;
 }
 </style>

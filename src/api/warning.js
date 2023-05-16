@@ -26,3 +26,12 @@ export function updateWarning(data) {
     data
   })
 }
+
+// 处理积分
+export function handleAppeal(data) {
+  return axios({
+    url: '/warning/handleAppeal',
+    method: 'POST',
+    data
+  })
+}
